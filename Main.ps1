@@ -16,7 +16,7 @@ $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 $functionsPath = Join-Path $scriptPath "Scripts" "PowerShell"
 $rootFSPath = Join-Path $scriptPath "Data" "rootfs" "install.tar.gz"
 $logoFilePath = Join-Path $scriptPath "Assets" "logo.txt"
-$downloadUrl = "" 
+$downloadUrl = "https://github.com/chavatte/ParrotOS-WSL-Installer/releases/download/v1.0.0/install.tar.gz" 
 
 $rootFSDir = Split-Path -Path $rootFSPath -Parent
 if (-not (Test-Path -Path $rootFSDir)) {
