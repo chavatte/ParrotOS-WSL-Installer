@@ -1,0 +1,10 @@
+Data/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+Test-*.ps1
+*.log
+*.tmp
+/dist/
+/build/
