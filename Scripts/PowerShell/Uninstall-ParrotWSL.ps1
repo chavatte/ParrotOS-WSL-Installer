@@ -1,66 +1,86 @@
-# Copyright (c) 2025 João Carlos Chavatte (DEV Chavatte)
+# Copyright (c) 2026 Chavatte Security
 #
 # This code is part of the ParrotOS-WSL Installer project.
 # It is licensed under the MIT License.
 # See LICENSE file for details.
+#
+# Security Revision: Implemented Auto-Elevation & Dynamic Registry Path Discovery
 
 <#
 .SYNOPSIS
-    Desinstala de forma completa a distribuição ParrotOS do WSL, incluindo pastas e módulos.
+    [EN] Completely uninstalls the ParrotOS WSL distribution, including folders and modules.
+    [PT] Desinstala de forma completa a distribuição ParrotOS do WSL, incluindo pastas e módulos.
 
 .DESCRIPTION
-    Este comando realiza uma desinstalação completa e segura. Ele primeiro encerra a distribuição,
-    depois remove seu registro do WSL, apaga a pasta de instalação do disco e, finalmente,
-    remove os módulos PowerShell 'Connect-ParrotGUI' e 'Uninstall-ParrotWSL' do perfil do usuário.
-
-.PARAMETER DistroName
-    O nome da distribuição WSL a ser removida. Padrão: "ParrotOS".
-
-.PARAMETER InstallPath
-    O caminho completo para a pasta de instalação da distribuição que será apagada.
-    É crucial que este caminho corresponda ao usado durante a instalação.
-
-.PARAMETER Force
-    Se especificado, pula a etapa de confirmação e executa a desinstalação diretamente.
-
-.EXAMPLE
-    PS C:\> Uninstall-ParrotWSL
-
-    Inicia o processo de desinstalação interativo, pedindo confirmação antes de apagar.
-
-.EXAMPLE
-    PS C:\> Uninstall-ParrotWSL -InstallPath "D:\MinhasDistros\ParrotOS" -Force
-
-    Remove imediatamente a distribuição instalada em "D:\MinhasDistros\ParrotOS" sem pedir confirmação.
+    [EN] This command performs a secure and complete uninstallation.
+    [PT] Este comando realiza uma desinstalação completa e segura.
 #>
 function Uninstall-ParrotWSL {
   [CmdletBinding()]
   param(
     [string]$DistroName = "ParrotOS",
-    [string]$InstallPath = "$env:SystemDrive\WSL_Distros\ParrotOS",
+    [string]$InstallPath = "",
     [switch]$Force
   )
 
-  Write-Host "`n=== 🗑️  DESINSTALADOR DO PARROT OS PARA WSL === " -ForegroundColor Cyan
+  $localeScript = Join-Path $PSScriptRoot "Get-Locale.ps1"
+  if (Test-Path $localeScript) { . $localeScript; $L = Get-Locale } else { $L = @{} }
 
-  Write-Host "ℹ️  Verificando itens para remoção..." -ForegroundColor Yellow
+  if ([string]::IsNullOrWhiteSpace($InstallPath)) {
+    try {
+      $distroReg = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss\*" -ErrorAction SilentlyContinue | Where-Object { $_.DistributionName -eq $DistroName }
+      if ($null -ne $distroReg -and -not [string]::IsNullOrWhiteSpace($distroReg.BasePath)) {
+        $InstallPath = $distroReg.BasePath -replace '^\\\\\?\\', ''
+      }
+      else {
+        $InstallPath = "$env:SystemDrive\WSL_Distros\$DistroName"
+      }
+    }
+    catch {
+      $InstallPath = "$env:SystemDrive\WSL_Distros\$DistroName"
+    }
+  }
+
+  $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  
+  if (-not $isAdmin) {
+    Write-Host $L["Uninst_NoAdmin"] -ForegroundColor Yellow
+    Write-Host $L["Uninst_ReqUAC"] -ForegroundColor Cyan
+      
+    $myArgs = @("-DistroName", "`"$DistroName`"", "-InstallPath", "`"$InstallPath`"")
+    if ($Force) { $myArgs += "-Force" }
+  
+    $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"") + $myArgs
+  
+    try {
+      Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
+      exit 0 
+    }
+    catch {
+      Write-Host $L["Uninst_UACError"] -ForegroundColor Red
+      exit 1
+    }
+  }
+
+  Write-Host $L["Uninst_Title"] -ForegroundColor Cyan
+  Write-Host $L["Uninst_Audit"] -ForegroundColor Yellow
     
   $distroExists = $false
   if ((wsl --list --quiet) -contains $DistroName) {
     $distroExists = $true
-    Write-Host "   [✓] Distribuição WSL encontrada: $DistroName" -ForegroundColor Green
+    Write-Host ($L["Uninst_DistroFound"] -f $DistroName) -ForegroundColor Green
   }
   else {
-    Write-Host "   [✗] Distribuição WSL não encontrada: $DistroName" -ForegroundColor DarkGray
+    Write-Host ($L["Uninst_DistroNotFound"] -f $DistroName) -ForegroundColor DarkGray
   }
 
   $dirExists = $false
   if (Test-Path -Path $InstallPath -PathType Container) {
     $dirExists = $true
-    Write-Host "   [✓] Diretório de instalação encontrado: $InstallPath" -ForegroundColor Green
+    Write-Host ($L["Uninst_DirFound"] -f $InstallPath) -ForegroundColor Green
   }
   else {
-    Write-Host "   [✗] Diretório de instalação não encontrado: $InstallPath" -ForegroundColor DarkGray
+    Write-Host ($L["Uninst_DirNotFound"] -f $InstallPath) -ForegroundColor DarkGray
   }
 
   $connectModuleDir = $null
@@ -73,84 +93,72 @@ function Uninstall-ParrotWSL {
     $connectModuleDir = Join-Path -Path $userModulePath -ChildPath "Connect-ParrotGUI"
     if (Test-Path -Path $connectModuleDir) {
       $connectModuleExists = $true
-      Write-Host "   [✓] Módulo PowerShell 'Connect-ParrotGUI' encontrado." -ForegroundColor Green
-    }
-    else {
-      Write-Host "   [✗] Módulo PowerShell 'Connect-ParrotGUI' não encontrado." -ForegroundColor DarkGray
+      Write-Host $L["Uninst_ModConnFound"] -ForegroundColor Green
     }
 
     $uninstallModuleDir = Join-Path -Path $userModulePath -ChildPath "Uninstall-ParrotWSL"
     if (Test-Path -Path $uninstallModuleDir) {
       $uninstallModuleExists = $true
-      Write-Host "   [✓] Módulo PowerShell 'Uninstall-ParrotWSL' encontrado." -ForegroundColor Green
-    }
-    else {
-      Write-Host "   [✗] Módulo PowerShell 'Uninstall-ParrotWSL' não encontrado." -ForegroundColor DarkGray
+      Write-Host $L["Uninst_ModUninstFound"] -ForegroundColor Green
     }
   }
 
   if (-not ($distroExists -or $dirExists -or $connectModuleExists -or $uninstallModuleExists)) {
-    Write-Host "`n✅ Nada a fazer. A instalação do ParrotOS não foi encontrada no sistema." -ForegroundColor Green
+    Write-Host $L["Uninst_Clean"] -ForegroundColor Green
     return
   }
 
   if (-not $Force) {
-    Write-Host "`n⚠️  AVISO! Esta ação é destrutiva e removerá permanentemente os itens marcados com [✓] acima." -ForegroundColor Yellow
-    $confirmation = Read-Host "❓ Você tem certeza que deseja continuar? Digite 'S' para confirmar"
-    if ($confirmation.ToUpper() -ne 'S') {
-      Write-Host "ℹ️  Desinstalação cancelada pelo usuário." -ForegroundColor Cyan
+    Write-Host $L["Uninst_WarnCrit"] -ForegroundColor Red
+    $confirmation = Read-Host $L["Uninst_Confirm"]
+    if ($confirmation -notmatch '^[sSyY]') {
+      Write-Host $L["Uninst_Abort"] -ForegroundColor Cyan
       return
     }
   }
 
-  Write-Host "`n⏳ Iniciando processo de remoção..." -ForegroundColor Yellow
+  Write-Host $L["Uninst_Exec"] -ForegroundColor Yellow
 
   if ($distroExists) {
     try {
-      Write-Host "   -> Terminando a distribuição '$DistroName' (se estiver em execução)..." -ForegroundColor DarkGray
+      Write-Host ($L["Uninst_TermInst"] -f $DistroName) -ForegroundColor DarkGray
       wsl --terminate $DistroName 2>$null
-      Write-Host "   -> Removendo registro da distribuição '$DistroName'..." -ForegroundColor Yellow
+      Write-Host $L["Uninst_UnregVHDX"] -ForegroundColor Yellow
       wsl --unregister $DistroName | Out-Null
-      Write-Host "   ✅ Distribuição desregistrada com sucesso." -ForegroundColor Green
+      Write-Host $L["Uninst_DistroRem"] -ForegroundColor Green
     }
     catch {
-      Write-Host "   🛑 ERRO ao tentar remover a distribuição WSL: $($_.Exception.Message)" -ForegroundColor Red
+      Write-Host ($L["Uninst_ErrDistroRem"] -f $_.Exception.Message) -ForegroundColor Red
     }
   }
 
   if ($dirExists) {
     try {
-      Write-Host "   -> Removendo diretório de instalação: $InstallPath" -ForegroundColor Yellow
+      Write-Host ($L["Uninst_DelDir"] -f $InstallPath) -ForegroundColor Yellow
       Remove-Item -Path $InstallPath -Recurse -Force
-      Write-Host "   ✅ Diretório de instalação removido com sucesso." -ForegroundColor Green
+      Write-Host $L["Uninst_DirPurged"] -ForegroundColor Green
     }
     catch {
-      Write-Host "   🛑 ERRO ao remover o diretório de instalação: $($_.Exception.Message)" -ForegroundColor Red
+      Write-Host ($L["Uninst_ErrDirPurge"] -f $_.Exception.Message) -ForegroundColor Red
     }
   }
 
   if ($connectModuleExists) {
     try {
-      Write-Host "   -> Removendo módulo PowerShell 'Connect-ParrotGUI'..." -ForegroundColor Yellow
       Remove-Item -Path $connectModuleDir -Recurse -Force
-      Write-Host "   ✅ Módulo 'Connect-ParrotGUI' removido com sucesso." -ForegroundColor Green
+      Write-Host $L["Uninst_ModConnPurged"] -ForegroundColor Green
     }
-    catch {
-      Write-Host "   🛑 ERRO ao remover o módulo 'Connect-ParrotGUI': $($_.Exception.Message)" -ForegroundColor Red
-    }
+    catch {}
   }
 
   if ($uninstallModuleExists) {
     try {
-      Write-Host "   -> Removendo módulo PowerShell 'Uninstall-ParrotWSL'..." -ForegroundColor Yellow
       Remove-Item -Path $uninstallModuleDir -Recurse -Force
-      Write-Host "   ✅ Módulo 'Uninstall-ParrotWSL' removido com sucesso." -ForegroundColor Green
+      Write-Host $L["Uninst_ModUninstPurged"] -ForegroundColor Green
     }
-    catch {
-      Write-Host "   🛑 ERRO ao remover o módulo 'Uninstall-ParrotWSL': $($_.Exception.Message)" -ForegroundColor Red
-    }
+    catch {}
   }
 
-  Write-Host "`n🎉 Processo de desinstalação concluído." -ForegroundColor Green
-  Write-Host "   Pode ser necessário reiniciar o terminal para que a remoção dos comandos tenha efeito completo." -ForegroundColor DarkGray
+  Write-Host $L["Uninst_Success"] -ForegroundColor Green
+  Write-Host $L["Uninst_RestartTerm"] -ForegroundColor DarkGray
 }

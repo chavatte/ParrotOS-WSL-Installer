@@ -1,8 +1,10 @@
-# Copyright (c) 2025 João Carlos Chavatte (DEV Chavatte)
+# Copyright (c) 2026 Chavatte Security
 #
 # This code is part of the ParrotOS-WSL Installer project.
 # It is licensed under the MIT License.
 # See LICENSE file for details.
+#
+# Security Revision: i18n Dictionary Implementation
 
 function Show-Logo {
   [CmdletBinding()]
@@ -14,11 +16,14 @@ function Show-Logo {
     return
   }
 
+  $localeScript = Join-Path $PSScriptRoot "Get-Locale.ps1"
+  if (Test-Path $localeScript) { . $localeScript; $L = Get-Locale } else { $L = @{} }
+
   try {
     Clear-Host
     $terminalWidth = $Host.UI.RawUI.WindowSize.Width
     if ($terminalWidth -lt 80) {
-      Write-Warning "A largura do terminal é muito pequena para exibir o logo."
+      Write-Warning $L["ShowLogo_WarnWidth"]
     }
     else {
       $mensagem = Get-Content -Path $LogoFilePath -Raw
@@ -27,19 +32,20 @@ function Show-Logo {
       if ($logoSpacingValue -lt 0) { $logoSpacingValue = 0 }
       $espacamento = " " * $logoSpacingValue
 
-            ($mensagem -split "`r`n") | ForEach-Object { Write-Host ($espacamento + $_) -ForegroundColor DarkGreen }
+      ($mensagem -split "`r`n") | ForEach-Object { Write-Host ($espacamento + $_) -ForegroundColor DarkGreen }
     }
-    $title = "=== INSTALAÇÃO DO PARROT OS NO WSL2 ==="
+    
+    $title = $L["ShowLogo_Title"]
     $titleSpacingValue = ($terminalWidth - $title.Length) / 2
     if ($titleSpacingValue -lt 0) { $titleSpacingValue = 0 }
     $titleSpacing = " " * $titleSpacingValue
     Write-Host ($titleSpacing + $title) -ForegroundColor Cyan
 
     $infoLines = @(
-      "Este script automatiza a instalação completa do Parrot OS no WSL2.",
-      "Ele configura o sistema, um usuário e o ambiente gráfico opcional.",
-      "Ao final, oferece a instalação de comandos facilitadores como:",
-      "'Connect-ParrotGUI' e 'Uninstall-ParrotWSL' para simplificar o gerenciamento futuro."
+      $L["ShowLogo_Info1"],
+      $L["ShowLogo_Info2"],
+      $L["ShowLogo_Info3"],
+      $L["ShowLogo_Info4"]
     )
 
     Write-Host
@@ -51,9 +57,9 @@ function Show-Logo {
     }
     Write-Host
 
-    Read-Host -Prompt "Pressione Enter para iniciar o processo"
+    Read-Host -Prompt $L["ShowLogo_Prompt"]
   }
   catch {
-    Write-Warning "Não foi possível exibir a tela de boas-vindas: $($_.Exception.Message)"
+    Write-Warning ($L["ShowLogo_WarnErr"] -f $_.Exception.Message)
   }
 }

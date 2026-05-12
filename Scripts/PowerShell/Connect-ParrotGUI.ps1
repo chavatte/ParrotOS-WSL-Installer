@@ -1,35 +1,37 @@
-# Copyright (c) 2025 João Carlos Chavatte (DEV Chavatte)
+# Copyright (c) 2026 Chavatte Security
 #
 # This code is part of the ParrotOS-WSL Installer project.
 # It is licensed under the MIT License.
 # See LICENSE file for details.
+#
+# Security Revision: Enhanced IP extraction, Secure RDP initialization & i18n Root execution
 
 <#
 .SYNOPSIS
-    Conecta-se ao ambiente gráfico (GUI) de uma distribuição WSL via RDP.
+    [EN] Securely connects to the Parrot OS graphical environment (GUI) via RDP.
+    [PT] Conecta-se de forma segura ao ambiente gráfico (GUI) do Parrot OS via RDP.
 
 .DESCRIPTION
-    Este script automatiza o processo de conexão a uma GUI no WSL. Ele primeiro verifica se o serviço XRDP está
-    rodando na distribuição especificada e o inicia se necessário. Em seguida, obtém o endereço IP da
-    interface 'eth0' da distribuição e inicia o cliente de Conexão de Área de Trabalho Remota (mstsc.exe).
+    [EN] This script automates the connection process to a GUI in WSL. It verifies if the XRDP service 
+    is running, starting it if necessary under Chavatte Security policies. It then dynamically retrieves 
+    the IP address of the 'eth0' interface and launches the Remote Desktop client (mstsc.exe).
+    
+    [PT] Este script automatiza o processo de conexão a uma GUI no WSL. Ele verifica se o serviço XRDP está
+    rodando e o inicia se necessário, aplicando políticas de segurança. Em seguida, obtém o endereço IP 
+    dinamicamente e inicia o cliente de Conexão de Área de Trabalho Remota (mstsc.exe).
 
 .PARAMETER DistroName
-    O nome da sua distribuição WSL na qual o ambiente gráfico está instalado.
-    O valor padrão é "ParrotOS".
+    [EN] The name of your WSL distribution where the GUI is installed. Default is "ParrotOS".
+    [PT] O nome da sua distribuição WSL. O valor padrão é "ParrotOS".
 
 .PARAMETER Port
-    A porta TCP na qual o serviço XRDP está escutando dentro da distribuição.
-    O valor padrão é 3389.
+    [EN] The TCP port on which the XRDP service is listening. Default is 3389.
+    [PT] A porta TCP na qual o serviço XRDP está escutando. O valor padrão é 3389.
 
 .EXAMPLE
     PS C:\> Connect-ParrotGUI
-
-    Tenta se conectar à distribuição padrão 'ParrotOS' na porta padrão 3389.
-
-.EXAMPLE
-    PS C:\> Connect-ParrotGUI -DistroName "Ubuntu-GUI" -Port 3390
-
-    Tenta se conectar a uma distribuição chamada "Ubuntu-GUI" em uma instância do XRDP rodando na porta 3390.
+    [EN] Attempts to connect to the default 'ParrotOS' distribution on port 3389.
+    [PT] Tenta se conectar à distribuição padrão 'ParrotOS' na porta padrão 3389.
 
 .LINK
     https://github.com/chavatte/ParrotOS-WSL-Installer
@@ -41,46 +43,48 @@ function Connect-ParrotGUI {
         [int]$Port = 3389
     )
 
-    Write-Host "`n=== 🖥️  CONECTANDO AO PARROT OS GUI VÍA RDP === " -ForegroundColor Cyan
-    Write-Host "ℹ️ Iniciando conexão à GUI do '$DistroName' na porta $Port..." -ForegroundColor Yellow
+    $localeScript = Join-Path $PSScriptRoot "Get-Locale.ps1"
+    if (Test-Path $localeScript) { . $localeScript; $L = Get-Locale } else { $L = @{} }
+
+    Write-Host $L["ConnGUI_Title"] -ForegroundColor Cyan
+    Write-Host ($L["ConnGUI_InitConn"] -f $DistroName, $Port) -ForegroundColor Yellow
 
     try {
-        Write-Host "🛠️  Verificando o status do serviço XRDP em '$DistroName'..." -ForegroundColor Yellow
-        $statusOutput = wsl -d $DistroName -- sudo service xrdp status
+        Write-Host ($L["ConnGUI_AuditXRDP"] -f $DistroName) -ForegroundColor Yellow
+        $statusOutput = wsl -d $DistroName -u root -- service xrdp status
 
         if ($statusOutput -match "is running") {
-            Write-Host "✅ Serviço XRDP já está ativo." -ForegroundColor Green
+            Write-Host $L["ConnGUI_XRDPActive"] -ForegroundColor Green
         }
         else {
-            Write-Host "ℹ️ Serviço XRDP não está ativo. Tentando iniciar (pode ser necessário inserir a senha no terminal WSL)..." -ForegroundColor Yellow
-            wsl -d $DistroName -- sudo service xrdp start
+            Write-Host $L["ConnGUI_XRDPStart"] -ForegroundColor Yellow
+            wsl -d $DistroName -u root -- service xrdp start | Out-Null
             Start-Sleep -Seconds 3 
             
-            $statusOutputAfterStart = wsl -d $DistroName -- sudo service xrdp status
-            if ($statusOutputAfterStart -match "is running") {
-                Write-Host "✅ Serviço XRDP iniciado com sucesso." -ForegroundColor Green
+            if ((wsl -d $DistroName -u root -- service xrdp status) -match "is running") {
+                Write-Host $L["ConnGUI_XRDPSuccess"] -ForegroundColor Green
             }
             else {
-                Write-Host "⚠️  AVISO: Falha ao confirmar o status do XRDP após a inicialização. A conexão pode falhar." -ForegroundColor Yellow
+                Write-Host $L["ConnGUI_XRDPWarn"] -ForegroundColor Yellow
             }
         }
     }
     catch {
-        Write-Host "🛑 ERRO: Falha ao tentar verificar/iniciar o serviço XRDP." -ForegroundColor Red
-        Write-Host "   Certifique-se de que o XRDP está instalado na distribuição '$DistroName'." -ForegroundColor Yellow
+        Write-Host $L["ConnGUI_XRDPErr"] -ForegroundColor Red
+        return
     }
 
-    Write-Host "🛠️  Obtendo endereço IP para '$DistroName' (via interface eth0)..." -ForegroundColor Yellow
+    Write-Host $L["ConnGUI_ResolvIP"] -ForegroundColor Yellow
     $ip = $null 
     try {
-        $ipOutputLines = wsl -d $DistroName -- ip -4 addr show eth0
+        $ipOutputLines = wsl -d $DistroName -u root -- ip -4 addr show eth0
         
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "🛑 ERRO PS: Falha ao executar 'ip addr show eth0' em '$DistroName'." -ForegroundColor Red
+            Write-Host ($L["ConnGUI_IPShowErr"] -f $DistroName) -ForegroundColor Red
         }
         else {
             foreach ($line in $ipOutputLines) {
-                if ($line -match 'inet\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)/') {
+                if ($line -match 'inet\s+([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/') {
                     $ip = $matches[1]
                     break 
                 }
@@ -88,22 +92,22 @@ function Connect-ParrotGUI {
         }
     }
     catch {
-        Write-Host "🛑 ERRO PS: Falha crítica ao executar o comando para obter o IP. $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host ($L["ConnGUI_RouteErr"] -f $_.Exception.Message) -ForegroundColor Red
+        return
     }
 
     if (-not [string]::IsNullOrWhiteSpace($ip)) {
-        Write-Host "✅ Endereço IP encontrado para '$DistroName': $ip" -ForegroundColor Green
-        Write-Host "⏳ Iniciando Conexão de Área de Trabalho Remota para $ip`:$Port (tela cheia)..." -ForegroundColor Cyan
+        Write-Host ($L["ConnGUI_IPFound"] -f $ip) -ForegroundColor Green
+        Write-Host ($L["ConnGUI_TunnelWait"] -f $ip, $Port) -ForegroundColor Cyan
         try {
             Start-Process mstsc.exe -ArgumentList "/v:$ip`:$Port /f" -ErrorAction Stop 
-            Write-Host "✅ Comando para iniciar RDP enviado." -ForegroundColor Green
+            Write-Host $L["ConnGUI_RDPInvoke"] -ForegroundColor Green
         }
         catch {
-            Write-Host "🛑 ERRO PS: Falha ao iniciar 'mstsc.exe' (Conexão de Área de Trabalho Remota)." -ForegroundColor Red
+            Write-Host $L["ConnGUI_RDPFail"] -ForegroundColor Red
         }
     }
     else {
-        Write-Host "🛑 ERRO: Não foi possível obter o endereço IP para '$DistroName' via interface 'eth0'." -ForegroundColor Red
-        Write-Host "   Verifique se a distribuição WSL está em execução e se a rede está funcionando." -ForegroundColor Yellow
+        Write-Host $L["ConnGUI_NetUnreach"] -ForegroundColor Red
     }
 }

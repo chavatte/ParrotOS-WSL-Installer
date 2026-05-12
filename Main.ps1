@@ -1,69 +1,124 @@
-# Copyright (c) 2025 João Carlos Chavatte (DEV Chavatte)
+# Copyright (c) 2026 Chavatte Security
 #
 # This code is part of the ParrotOS-WSL Installer project.
 # It is licensed under the MIT License.
 # See LICENSE file for details.
 
+# Security Revision: Auto-Elevation, SHA256 Integrity Check, Interactive Guide & i18n
+
 param(
     [switch]$NoGUI,
     [switch]$Silent,
     [switch]$Uninstall,
-    [string]$InstallPath
+    [string]$InstallPath,
+    [switch]$InteractiveGuide
 )
 
-$ErrorActionPreference = "Stop"
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+$localeScript = Join-Path $scriptPath "Scripts\PowerShell\Get-Locale.ps1"
+if (Test-Path $localeScript) {
+    . $localeScript
+    $L = Get-Locale
+}
+else {
+    $L = @{ "Main_NoAdmin" = "⚠️ Admin priv. not detected."; "Main_ReqUAC" = "🔄 Requesting UAC..."; "Main_UACError" = "🛑 ERROR: UAC cancelled." }
+}
+
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (-not $isAdmin) {
+    Write-Host $L["Main_NoAdmin"] -ForegroundColor Yellow
+    Write-Host $L["Main_ReqUAC"] -ForegroundColor Cyan
+    
+    $psExe = if ($PSVersionTable.PSVersion.Major -ge 6) { "pwsh.exe" } else { "powershell.exe" }
+    
+    $myArgs = @()
+    if ($NoGUI) { $myArgs += "-NoGUI" }
+    if ($Silent) { $myArgs += "-Silent" }
+    if ($Uninstall) { $myArgs += "-Uninstall" }
+    if ($InteractiveGuide) { $myArgs += "-InteractiveGuide" }
+    if (-not [string]::IsNullOrWhiteSpace($InstallPath)) { $myArgs += "-InstallPath", "`"$InstallPath`"" }
+
+    $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"") + $myArgs
+
+    try { Start-Process $psExe -Verb RunAs -ArgumentList $argList; exit 0 }
+    catch { Write-Host $L["Main_UACError"] -ForegroundColor Red; exit 1 }
+}
+
+$ErrorActionPreference = "Stop"
 $functionsPath = Join-Path $scriptPath "Scripts" "PowerShell"
 $rootFSPath = Join-Path $scriptPath "Data" "rootfs" "install.tar.gz"
 $logoFilePath = Join-Path $scriptPath "Assets" "logo.txt"
 $downloadUrl = "https://github.com/chavatte/ParrotOS-WSL-Installer/releases/download/v1.0.0/install.tar.gz" 
+$expectedHash = "sha256:867b18097e00d0f015195fd34610d72bdfdd4cc6887dbf926a5d4f7c5cbb69b5"
 
-$rootFSDir = Split-Path -Path $rootFSPath -Parent
-if (-not (Test-Path -Path $rootFSDir)) {
-    New-Item -ItemType Directory -Path $rootFSDir -Force | Out-Null
+function Show-InteractiveGuide {
+    Write-Host $L["Main_WelcomeTitle"] -ForegroundColor Cyan
+    Write-Host $L["Main_WelcomeDesc"] -ForegroundColor White
+    Write-Host $L["Main_WelcomePhases"] -ForegroundColor DarkGray
+    Write-Host $L["Main_Phase1"] -ForegroundColor White
+    Write-Host $L["Main_Phase2"] -ForegroundColor White
+    Write-Host $L["Main_Phase3"] -ForegroundColor White
+    Write-Host $L["Main_Phase4"] -ForegroundColor White
+    Write-Host $L["Main_PreReqWarn"] -ForegroundColor Yellow
+    Pause
 }
 
-if (-not (Test-Path -Path $rootFSPath -PathType Leaf)) {
-    try {
-        Write-Host "`n⏳ O arquivo 'rootfs' não foi encontrado." -ForegroundColor Yellow
-        Write-Host "   Iniciando o download de '$downloadUrl'..." -ForegroundColor Yellow
-        Write-Host "   (Isso pode levar alguns minutos dependendo da sua conexão)..." -ForegroundColor Yellow
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $rootFSPath -UseBasicParsing
-        Write-Host "✅ Download do 'rootfs' concluído com sucesso." -ForegroundColor Green
-    }
-    catch {
-        Write-Host "🛑 ERRO FATAL: Falha ao baixar o arquivo rootfs. Verifique sua conexão com a internet e a URL." -ForegroundColor Red
-        Write-Host $_.Exception.Message -ForegroundColor Red
-        exit 1
-    }
-}
-
-Get-ChildItem -Path $functionsPath -Filter "*.ps1" | ForEach-Object {
-    try {
-        . $_.FullName
-        Write-Verbose "Carregada função: $($_.Name)"
-    }
-    catch {
-        Write-Host "ERRO: Falha ao carregar $($_.Name): $_" -ForegroundColor Red
-        exit 1
-    }
+Get-ChildItem -Path $functionsPath -Filter "*.ps1" | Where-Object { $_.Name -ne "Get-Locale.ps1" } | ForEach-Object {
+    try { . $_.FullName }
+    catch { Write-Host "$($L["Main_ModLoadErr"]) $($_.Name): $_" -ForegroundColor Red; exit 1 }
 }
 
 Show-Logo -LogoFilePath $logoFilePath
 
+if (-not $Silent -and -not $Uninstall) {
+    $startGuide = Read-Host $L["Main_PromptGuide"]
+    if ($startGuide -match '^[sSyY]') { Show-InteractiveGuide }
+}
+
 try {
     if ($Uninstall) {
-        Write-Host "`n=== MODO DE DESINSTALAÇÃO ===" -ForegroundColor Cyan
+        Write-Host $L["Main_UninstallMode"] -ForegroundColor Cyan
         $uninstallArgs = @("-DistroName", "ParrotOS")
-        if (-not [string]::IsNullOrWhiteSpace($InstallPath)) {
-            $uninstallArgs += @("-InstallPath", $InstallPath)
-        }
+        if (-not [string]::IsNullOrWhiteSpace($InstallPath)) { $uninstallArgs += @("-InstallPath", $InstallPath) }
         & "$PSScriptRoot\Uninstall.ps1" @uninstallArgs
         exit 0
     }
 
-    Write-Host "`n=== INÍCIO DA INSTALAÇÃO ===" -ForegroundColor Cyan
+    Write-Host $L["Main_InstallStart"] -ForegroundColor Cyan
     
+    $rootFSDir = Split-Path -Path $rootFSPath -Parent
+    if (-not (Test-Path -Path $rootFSDir)) { New-Item -ItemType Directory -Path $rootFSDir -Force | Out-Null }
+
+    if (-not (Test-Path -Path $rootFSPath -PathType Leaf)) {
+        try {
+            Write-Host $L["Main_RootfsNotFound"] -ForegroundColor Yellow
+            Write-Host "$($L["Main_DownloadStart"]) '$downloadUrl'..." -ForegroundColor Yellow
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $rootFSPath -UseBasicParsing
+            Write-Host $L["Main_DownloadSucc"] -ForegroundColor Green
+        }
+        catch { Write-Host $L["Main_DownloadFail"] -ForegroundColor Red; exit 1 }
+    }
+
+    Write-Host $L["Main_HashAudit"] -ForegroundColor Yellow
+    
+    if (-not [string]::IsNullOrWhiteSpace($expectedHash) -and $expectedHash -notmatch "INSERIR_O_HASH") {
+        $cleanExpectedHash = $expectedHash -replace "(?i)^sha256:\s*", ""
+        $cleanExpectedHash = $cleanExpectedHash.Trim().ToUpper()
+        $fileHash = (Get-FileHash -Path $rootFSPath -Algorithm SHA256).Hash.ToUpper()
+        
+        if ($fileHash -ne $cleanExpectedHash) {
+            Write-Host $L["Main_HashFail"] -ForegroundColor Red
+            Write-Host "$($L["Main_HashExpected"]) $cleanExpectedHash" -ForegroundColor Red
+            Write-Host "$($L["Main_HashObtained"]) $fileHash" -ForegroundColor Red
+            Write-Host $L["Main_HashAbort"] -ForegroundColor Red
+            Remove-Item -Path $rootFSPath -Force
+            exit 1
+        }
+        Write-Host $L["Main_HashSuccess"] -ForegroundColor Green
+    }
+    else { Write-Host $L["Main_HashSkipped"] -ForegroundColor DarkGray }
+
     Enable-WSL2
 
     $chosenInstallPath = ""
@@ -71,92 +126,56 @@ try {
 
     if (-not [string]::IsNullOrWhiteSpace($InstallPath)) {
         $chosenInstallPath = $InstallPath
-        Write-Host "ℹ️  Caminho de instalação personalizado fornecido via parâmetro: $chosenInstallPath" -ForegroundColor Cyan
+        Write-Host "$($L["Main_CustomPath"]) $chosenInstallPath" -ForegroundColor Cyan
     }
-    elseif ($Silent) {
-        $chosenInstallPath = $defaultPath
-    }
+    elseif ($Silent) { $chosenInstallPath = $defaultPath }
     else {
-        Write-Host "`n--- Local de Instalação ---" -ForegroundColor Cyan
-        $choice = Read-Host "❓ O local de instalação padrão é '$defaultPath'. Deseja usar este local? [S/N]"
-        if ($choice.ToUpper() -eq 'N') {
+        Write-Host $L["Main_LocTitle"] -ForegroundColor Cyan
+        $promptStr = $L["Main_LocDefault"] -f $defaultPath
+        $choice = Read-Host $promptStr
+        if ($choice -match '^[nN]') {
             while ([string]::IsNullOrWhiteSpace($chosenInstallPath)) {
-                $chosenInstallPath = Read-Host "  -> Digite o caminho completo para a nova pasta de instalação"
-                if ([string]::IsNullOrWhiteSpace($chosenInstallPath)) {
-                    Write-Host "🛑 O caminho não pode ser vazio. Por favor, tente novamente." -ForegroundColor Red
-                }
+                $chosenInstallPath = Read-Host $L["Main_LocCustom"]
             }
         }
-        else {
-            $chosenInstallPath = $defaultPath
-        }
+        else { $chosenInstallPath = $defaultPath }
     }
-    Write-Host "✅ O Parrot OS será instalado em: '$chosenInstallPath'" -ForegroundColor Green
-
+    
     Install-ParrotWSL -RootFSPath $rootFSPath -InstallPath $chosenInstallPath
     
+    if ($Silent) { Install-ParrotTools }
+    else {
+        $installTools = Read-Host $L["Main_PromptTools"]
+        if ($installTools -match '^[sSyY]') { Install-ParrotTools }
+    }
+
     if (-not $NoGUI) {
-        if ($Silent) {
-            Set-ParrotGUI
-        }
+        if ($Silent) { Set-ParrotGUI }
         else {
-            $installGUI = Read-Host "Deseja instalar o ambiente gráfico (GUI)? [S/N]"
-            if ($installGUI -match '^[sS]') {
+            $installGUI = Read-Host $L["Main_PromptGUI"]
+            if ($installGUI -match '^[sSyY]') {
                 Set-ParrotGUI
-
-                if (-not $Silent) {
-                    $installConnectChoice = Read-Host "❓ Deseja instalar o comando 'Connect-ParrotGUI' para acesso rápido? [S/N]"
-                    if ($installConnectChoice -match '^[sS]') {
-                        Install-PSModule -FunctionName "Connect-ParrotGUI" -SourceScriptPath (Join-Path $functionsPath "Connect-ParrotGUI.ps1")
-                    }
-
-                    $installUninstallChoice = Read-Host "❓ Deseja instalar o comando 'Uninstall-ParrotWSL' para facilitar a remoção no futuro? [S/N]"
-                    if ($installUninstallChoice -match '^[sS]') {
-                        Install-PSModule -FunctionName "Uninstall-ParrotWSL" -SourceScriptPath (Join-Path $functionsPath "Uninstall-ParrotWSL.ps1")
-                    }
+                $installConnectChoice = Read-Host $L["Main_PromptConnM"]
+                if ($installConnectChoice -match '^[sSyY]') {
+                    Install-PSModule -FunctionName "Connect-ParrotGUI" -SourceScriptPath (Join-Path $functionsPath "Connect-ParrotGUI.ps1")
                 }
-                
-                if (-not $Silent) {
-                    $connectNow = Read-Host "Deseja conectar agora ao ambiente gráfico? [S/N]"
-                    if ($connectNow -match '^[sS]') {
-                        Connect-ParrotGUI
-                    }
+                $installUninstallChoice = Read-Host $L["Main_PromptUninM"]
+                if ($installUninstallChoice -match '^[sSyY]') {
+                    Install-PSModule -FunctionName "Uninstall-ParrotWSL" -SourceScriptPath (Join-Path $functionsPath "Uninstall-ParrotWSL.ps1")
                 }
+                $connectNow = Read-Host $L["Main_PromptConnN"]
+                if ($connectNow -match '^[sSyY]') { Connect-ParrotGUI }
             }
         }
     }
     
-    Write-Host "`n🎉 INSTALAÇÃO COMPLETADA COM SUCESSO! 🎉" -ForegroundColor Green
-    Write-Host "   Os arquivos da sua distribuição foram instalados em: '$chosenInstallPath'" -ForegroundColor DarkGray
-    Write-Host "`n--- Comandos Úteis ---" -ForegroundColor Cyan
-    Write-Host "  -> Para iniciar o terminal padrão do Parrot OS:" -ForegroundColor White
-    Write-Host "     wsl -d $DistroName" -ForegroundColor Yellow
-    Write-Host "`n  -> Para entrar diretamente como o usuário 'root':" -ForegroundColor White
-    Write-Host "     wsl -d $DistroName -u root" -ForegroundColor Yellow
-
-    if ((-not $NoGUI) -and (Get-Command Connect-ParrotGUI -ErrorAction SilentlyContinue)) {
-        Write-Host "`n  -> Para conectar ao Ambiente Gráfico (GUI):" -ForegroundColor White
-        Write-Host "     Connect-ParrotGUI" -ForegroundColor Yellow
-        Write-Host "     # Para ver todos os parâmetros e exemplos, use a ajuda:" -ForegroundColor DarkGray
-        Write-Host "     Get-Help Connect-ParrotGUI -Full" -ForegroundColor DarkGray
-    }
-
-    Write-Host "`n  -> Para desinstalar:" -ForegroundColor White
-    if (Get-Command Uninstall-ParrotWSL -ErrorAction SilentlyContinue) {
-        Write-Host "     # Como o módulo foi instalado, você pode usar este comando de qualquer lugar:" -ForegroundColor DarkGray
-        Write-Host "     Uninstall-ParrotWSL" -ForegroundColor Yellow
-        Write-Host "     # Se usou um caminho personalizado, não se esqueça de especificá-lo:" -ForegroundColor DarkGray
-        Write-Host "     Uninstall-ParrotWSL -InstallPath '$chosenInstallPath'" -ForegroundColor DarkGray
-    }
-    else {
-        Write-Host "     # Como o módulo não foi instalado, execute o script a partir da raiz do projeto:" -ForegroundColor DarkGray
-        Write-Host "     .\Main.ps1 -Uninstall" -ForegroundColor Yellow
-        Write-Host "     # Se usou um caminho personalizado, adicione o parâmetro:" -ForegroundColor DarkGray
-        Write-Host "     .\Main.ps1 -Uninstall -InstallPath '$chosenInstallPath'" -ForegroundColor DarkGray
-    }
-    
+    Write-Host $L["Main_DeploySucc"] -ForegroundColor Green
+    Write-Host $L["Main_CliTerm"] -ForegroundColor White
+    Write-Host "     wsl -d ParrotOS" -ForegroundColor Yellow
+    Write-Host $L["Main_GuiEnv"] -ForegroundColor White
+    Write-Host "     Connect-ParrotGUI" -ForegroundColor Yellow
 }
 catch {
-    Write-Host "`nERRO NA INSTALAÇÃO: $_" -ForegroundColor Red
+    Write-Host "$($L["Main_CritExcept"]) $_" -ForegroundColor Red
     exit 1
 }

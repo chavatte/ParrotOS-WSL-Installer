@@ -1,85 +1,90 @@
-# Copyright (c) 2025 João Carlos Chavatte (DEV Chavatte)
+# Copyright (c) 2026 Chavatte Security
 #
 # This code is part of the ParrotOS-WSL Installer project.
 # It is licensed under the MIT License.
 # See LICENSE file for details.
+#
+# Security Revision: Dynamic i18n implementation
 
 function Enable-WSL2 {
   [CmdletBinding()]
   param()
 
-  Write-Host "`n=== ⚙️ VERIFICANDO PRÉ-REQUISITOS DO WSL2 === " -ForegroundColor Cyan
+  $localeScript = Join-Path $PSScriptRoot "Get-Locale.ps1"
+  if (Test-Path $localeScript) { . $localeScript; $L = Get-Locale } else { $L = @{} }
+
+  Write-Host $L["EWSL_TitleReq"] -ForegroundColor Cyan
 
   $osInfo = Get-ComputerInfo | Select-Object OsName, OsVersion, OsArchitecture
   $buildNumber = [System.Environment]::OSVersion.Version.Build
 
-  Write-Host "ℹ️ Verificando compatibilidade do sistema operacional..." -ForegroundColor Yellow
+  Write-Host $L["EWSL_CheckOS"] -ForegroundColor Yellow
   if ($buildNumber -lt 19041) {
-    Write-Host "🛑 ERRO: Seu Windows ($($osInfo.OsName) - Build $buildNumber) não suporta WSL2." -ForegroundColor Red
-    Write-Host "ℹ️ É necessário Windows 10 versão 2004 (build 19041) ou superior, ou Windows 11." -ForegroundColor Yellow
+    Write-Host ($L["EWSL_ErrOS"] -f $osInfo.OsName, $buildNumber) -ForegroundColor Red
+    Write-Host $L["EWSL_InfoOSReq"] -ForegroundColor Yellow
     exit 1
   }
-  Write-Host "✅ Sistema operacional compatível detectado: $($osInfo.OsName) (Build $buildNumber)" -ForegroundColor Green
+  Write-Host ($L["EWSL_SuccOS"] -f $osInfo.OsName, $buildNumber) -ForegroundColor Green
 
   try {
-    Write-Host "ℹ️ Verificando status dos recursos 'VirtualMachinePlatform' e 'Microsoft-Windows-Subsystem-Linux'..." -ForegroundColor Yellow
+    Write-Host $L["EWSL_CheckFeat"] -ForegroundColor Yellow
     $vmEnabled = (Get-WindowsOptionalFeature -Online -FeatureName "VirtualMachinePlatform").State -eq "Enabled"
     $wslEnabled = (Get-WindowsOptionalFeature -Online -FeatureName "Microsoft-Windows-Subsystem-Linux").State -eq "Enabled"
         
     if (-not $vmEnabled -or -not $wslEnabled) {
-      Write-Host "🛠️ Habilitando recursos necessários do Windows ('VirtualMachinePlatform', 'Microsoft-Windows-Subsystem-Linux')..." -ForegroundColor Yellow
-      Write-Host "⚠️ Isso pode exigir uma reinicialização do sistema." -ForegroundColor Yellow
-      Write-Host "⏳ O processo pode demorar alguns minutos." -ForegroundColor Yellow
+      Write-Host $L["EWSL_EnableFeat"] -ForegroundColor Yellow
+      Write-Host $L["EWSL_WarnRestart"] -ForegroundColor Yellow
+      Write-Host $L["EWSL_WaitMin"] -ForegroundColor Yellow
       
       if (-not $vmEnabled) {
-        Write-Host "🛠️ Habilitando 'VirtualMachinePlatform'..." -ForegroundColor Yellow
+        Write-Host $L["EWSL_EnVMP"] -ForegroundColor Yellow
         Enable-WindowsOptionalFeature -Online -FeatureName "VirtualMachinePlatform" -NoRestart -ErrorAction Stop | Out-Null
-        Write-Host "✅ 'VirtualMachinePlatform' habilitado." -ForegroundColor Green
+        Write-Host $L["EWSL_SuccVMP"] -ForegroundColor Green
       }
       else {
-        Write-Host "✅ 'VirtualMachinePlatform' já está habilitado." -ForegroundColor Green
+        Write-Host $L["EWSL_AlrVMP"] -ForegroundColor Green
       }
 
       if (-not $wslEnabled) {
-        Write-Host "🛠️ Habilitando 'Microsoft-Windows-Subsystem-Linux'..." -ForegroundColor Yellow
+        Write-Host $L["EWSL_EnWSLF"] -ForegroundColor Yellow
         Enable-WindowsOptionalFeature -Online -FeatureName "Microsoft-Windows-Subsystem-Linux" -NoRestart -ErrorAction Stop | Out-Null
-        Write-Host "✅ 'Microsoft-Windows-Subsystem-Linux' habilitado." -ForegroundColor Green
+        Write-Host $L["EWSL_SuccWSLF"] -ForegroundColor Green
       }
       else {
-        Write-Host "✅ 'Microsoft-Windows-Subsystem-Linux' já está habilitado." -ForegroundColor Green
+        Write-Host $L["EWSL_AlrWSLF"] -ForegroundColor Green
       }
             
-      Write-Host "✅ Recursos habilitados com sucesso. Uma reinicialização é necessária para aplicar todas as alterações." -ForegroundColor Green
-      Write-Host "ℹ️ Você pode reiniciar agora ou mais tarde." -ForegroundColor Yellow
+      Write-Host $L["EWSL_SuccAllFeat"] -ForegroundColor Green
+      Write-Host $L["EWSL_InfoRestart"] -ForegroundColor Yellow
       
       $choice = $null
-      while ($choice -notmatch '^[sSnN]$') {
-        $choice = Read-Host "❓ Deseja reiniciar o computador agora? (S/N)"
-        if ($choice -notmatch '^[sSnN]$') {
-          Write-Host "⚠️ Opção inválida. Por favor, digite 'S' para Sim ou 'N' para Não." -ForegroundColor Yellow
+      while ($choice -notmatch '^[sSyYnN]$') {
+        $choice = Read-Host $L["EWSL_PromptRest"]
+        if ($choice -notmatch '^[sSyYnN]$') {
+          Write-Host $L["EWSL_WarnInvalid"] -ForegroundColor Yellow
         }
       }
 
-      if ($choice -match '^[sS]') {
-        Write-Host "⏳ Reiniciando o computador..." -ForegroundColor Yellow
+      if ($choice -match '^[sSyY]') {
+        Write-Host $L["EWSL_RestComp"] -ForegroundColor Yellow
         Restart-Computer -Force
       }
       else {
-        Write-Host "ℹ️ Você precisará reiniciar manualmente para continuar a instalação e para que as alterações tenham efeito." -ForegroundColor Yellow
+        Write-Host $L["EWSL_InfoManRest"] -ForegroundColor Yellow
         exit 0
       }
     }
     else {
-      Write-Host "✅ Recursos 'VirtualMachinePlatform' e 'Microsoft-Windows-Subsystem-Linux' já estão habilitados." -ForegroundColor Green
+      Write-Host $L["EWSL_SuccAllAlr"] -ForegroundColor Green
     }
   }
   catch {
-    Write-Host "🛑 ERRO: Falha ao habilitar recursos do WSL: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ($L["EWSL_ErrEnFeat"] -f $_.Exception.Message) -ForegroundColor Red
     exit 1
   }
 
   try {
-    Write-Host "`n=== ⚙️ CONFIGURANDO WSL2 === " -ForegroundColor Cyan
+    Write-Host $L["EWSL_TitleConf"] -ForegroundColor Cyan
 
     $wslInstalled = $false
     try {
@@ -91,77 +96,77 @@ function Enable-WSL2 {
     }
 
     if (-not $wslInstalled) {
-      Write-Host "ℹ️ Componentes principais do WSL não encontrados ou kernel ausente." -ForegroundColor Yellow
-      Write-Host "🛠️ Instalando componentes e kernel do WSL2..." -ForegroundColor Yellow
-      Write-Host "⏳ Isso pode demorar alguns minutos." -ForegroundColor Yellow
-      Write-Host "ℹ️ Para mais informações, acesse: https://aka.ms/wsl2kernel" -ForegroundColor Yellow
+      Write-Host $L["EWSL_InfoNoCore"] -ForegroundColor Yellow
+      Write-Host $L["EWSL_InstCore"] -ForegroundColor Yellow
+      Write-Host $L["EWSL_WaitMin"] -ForegroundColor Yellow
+      Write-Host $L["EWSL_InfoLink"] -ForegroundColor Yellow
       wsl --install --no-distribution | Out-Null
       if ($LASTEXITCODE -ne 0) {
-        Write-Host "🛑 ERRO: Falha ao executar 'wsl --install --no-distribution'. Código: $LASTEXITCODE" -ForegroundColor Red
-        Write-Host "ℹ️ Pode ser necessário reiniciar o computador se os recursos foram habilitados na etapa anterior." -ForegroundColor Yellow
+        Write-Host ($L["EWSL_ErrWslInst"] -f $LASTEXITCODE) -ForegroundColor Red
+        Write-Host $L["EWSL_InfoReqRest"] -ForegroundColor Yellow
         exit 1
       }
-      Write-Host "✅ Componentes e kernel do WSL2 instalados." -ForegroundColor Green
+      Write-Host $L["EWSL_SuccCore"] -ForegroundColor Green
     }
     else {
-      Write-Host "ℹ️ WSL já detectado. Verificando atualizações do kernel..." -ForegroundColor Yellow
-      Write-Host "🛠️ Atualizando componentes do WSL (incluindo o kernel, se necessário)..." -ForegroundColor Yellow
-      Write-Host "⏳ Isso pode demorar alguns minutos." -ForegroundColor Yellow
+      Write-Host $L["EWSL_InfoDetWSL"] -ForegroundColor Yellow
+      Write-Host $L["EWSL_UpdCore"] -ForegroundColor Yellow
+      Write-Host $L["EWSL_WaitMin"] -ForegroundColor Yellow
       wsl --update | Out-Null
       if ($LASTEXITCODE -ne 0) {
-        Write-Host "⚠️ AVISO: 'wsl --update' retornou o código $LASTEXITCODE. Tentando prosseguir." -ForegroundColor Yellow
+        Write-Host ($L["EWSL_WarnUpdCode"] -f $LASTEXITCODE) -ForegroundColor Yellow
       }
       else {
-        Write-Host "✅ Componentes do WSL atualizados." -ForegroundColor Green
+        Write-Host $L["EWSL_SuccUpd"] -ForegroundColor Green
       }
     }
 
-    Write-Host "🛠️ Definindo WSL2 como a versão padrão para novas distribuições..." -ForegroundColor Yellow
+    Write-Host $L["EWSL_SetDef2"] -ForegroundColor Yellow
     wsl --set-default-version 2 | Out-Null
     if ($LASTEXITCODE -ne 0) {
-      Write-Host "🛑 ERRO: Falha ao definir WSL2 como versão padrão. Código: $LASTEXITCODE" -ForegroundColor Red
-      Write-Host "ℹ️ Verifique se o WSL foi instalado corretamente e se a virtualização está habilitada na BIOS." -ForegroundColor Yellow
+      Write-Host ($L["EWSL_ErrSetDef"] -f $LASTEXITCODE) -ForegroundColor Red
+      Write-Host $L["EWSL_InfoChkBios"] -ForegroundColor Yellow
       exit 1
     }
-    Write-Host "✅ WSL2 definido como a versão padrão." -ForegroundColor Green
+    Write-Host $L["EWSL_SuccSetDef"] -ForegroundColor Green
         
   }
   catch {
-    Write-Host "🛑 ERRO: Falha ao configurar o WSL2: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "ℹ️ Tente executar o script novamente ou consulte a documentação do WSL." -ForegroundColor Yellow
-    Write-Host "ℹ️ Para mais informações, acesse: https://aka.ms/wsl2kernel" -ForegroundColor Yellow
+    Write-Host ($L["EWSL_ErrConfWSL"] -f $_.Exception.Message) -ForegroundColor Red
+    Write-Host $L["EWSL_InfoTryAgn"] -ForegroundColor Yellow
+    Write-Host $L["EWSL_InfoLink"] -ForegroundColor Yellow
     exit 1
   }
   
-  Write-Host "`n=== 🔍 VERIFICANDO O STATUS DO WSL === " -ForegroundColor Cyan
-  Write-Host "ℹ️ Verificando o status e a versão padrão do WSL..." -ForegroundColor Yellow
+  Write-Host $L["EWSL_TitleStat"] -ForegroundColor Cyan
+  Write-Host $L["EWSL_CheckStat"] -ForegroundColor Yellow
   try {
     $wslStatusOutput = wsl --status
     if ($LASTEXITCODE -ne 0) {
-      Write-Host "⚠️ AVISO: Não foi possível obter o status detalhado do WSL via 'wsl --status'. Código: $LASTEXITCODE" -ForegroundColor Yellow
-      Write-Host "   Isso pode ocorrer em algumas versões do Windows ou se o WSL não estiver totalmente funcional." -ForegroundColor Yellow
-      Write-Host "   Tentando verificar a versão padrão de outra forma..." -ForegroundColor Yellow
+      Write-Host ($L["EWSL_WarnStat"] -f $LASTEXITCODE) -ForegroundColor Yellow
+      Write-Host $L["EWSL_InfoWinVer"] -ForegroundColor Yellow
+      Write-Host $L["EWSL_InfoTryAlt"] -ForegroundColor Yellow
       $defaultVersionCheck = (wsl --list --verbose) | Select-String "^\*\s"
       if ($defaultVersionCheck -match "VERSION\s+2") {
-        Write-Host "✅ Versão padrão do WSL parece ser 2 (verificado via wsl --list --verbose)." -ForegroundColor Green
+        Write-Host $L["EWSL_SuccVer2Alt"] -ForegroundColor Green
       }
       else {
-        Write-Host "⚠️ Não foi possível confirmar se a versão padrão do WSL é 2." -ForegroundColor Yellow
+        Write-Host $L["EWSL_WarnNoConf2"] -ForegroundColor Yellow
       }
     }
     else {
       if ($wslStatusOutput -match "2") {
-        Write-Host "✅ WSL2 está instalado e configurado corretamente como padrão." -ForegroundColor Green
+        Write-Host $L["EWSL_SuccVer2"] -ForegroundColor Green
       }
       else {
-        Write-Host "⚠️ A versão padrão do WSL não parece ser 2 ou não pôde ser confirmada pelo 'wsl --status'." -ForegroundColor Yellow
-        Write-Host "   Verifique a saída acima. Se o WSL foi instalado/atualizado agora, pode ser necessário reiniciar." -ForegroundColor Yellow
+        Write-Host $L["EWSL_WarnNot2"] -ForegroundColor Yellow
+        Write-Host $L["EWSL_InfoChkOut"] -ForegroundColor Yellow
       }
     }
   }
   catch {
-    Write-Host "🛑 ERRO: Não foi possível verificar o status do WSL: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ($L["EWSL_ErrChkStat"] -f $_.Exception.Message) -ForegroundColor Red
     exit 1
   }
-  Write-Host "🎉 Verificação de pré-requisitos e configuração do WSL2 concluída." -ForegroundColor Green
+  Write-Host $L["EWSL_SuccFinal"] -ForegroundColor Green
 }
